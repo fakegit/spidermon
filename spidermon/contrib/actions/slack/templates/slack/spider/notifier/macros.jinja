@@ -1,10 +1,11 @@
 {% macro render_result(result) -%}
-    •  _{{ result.monitor.name }}_\n
+•  _{{ result.monitor.name }}_{% if result.reason %}{{ "\n    " }}{{ result.reason }}{% endif %}{{ "\n" }}
 {%- endmacro %}
 
 {% macro render_results(color, results) %}
+    {% set text %}{% for result in results %}{{ render_result(result) }}{% endfor %}{% endset %}
     {
-        "text": "{% for result in results %}{{ render_result(result) }}{% endfor %}",
+        "text": {{ text|tojson }},
         "color": "{{ color }}",
         "mrkdwn_in": ["text", "pretext"]
     }
@@ -21,4 +22,4 @@
 {% macro render_job_url() %}{% if data.job %} / <https://app.zyte.com/p/{{ data.job.key }}|view job in Scrapy Cloud>{% endif %}{% endmacro %}
 {% macro render_report_url() %}{% if include_report_link and data.meta.reports_links %} / <{{ data.meta.reports_links[report_index] }}|report>{% endif %}{% endmacro %}
 {% macro render_url() %}{{ render_report_url() }}{{ render_job_url() }}{% endmacro %}
-{% macro render_spider_name() %}{% if data.spider %}{{ data.spider.name }}{% elif data.job %}{{ data.job.metadata['spider'] }}{% else %}??{% endif %}{% endmacro %}
+{% macro render_spider_name() %}{% if data.spider %}{{ data.sc_spider_name }}{% elif data.job %}{{ data.job.metadata.get('spider') }}{% else %}??{% endif %}{% endmacro %}

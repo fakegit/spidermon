@@ -1,4 +1,12 @@
-from .fixtures.ordering import *
+from spidermon import MonitorSuite
+
+from .fixtures.ordering import (
+    EqualOrderedMethodsMonitor,
+    Ordered,
+    OrderedMethodsMonitor,
+    Unordered,
+    UnorderedMethodsMonitor,
+)
 
 SUITE_SEQUENCES = [
     # ------------------------------------------------------------------------------------------------------------
@@ -85,5 +93,4 @@ def test_method_ordering():
 def _extract_monitor_class(suite):
     if suite.__class__ == MonitorSuite:
         return _extract_monitor_class(suite._tests[0])
-    else:
-        return suite.__class__
+    return suite.__class__

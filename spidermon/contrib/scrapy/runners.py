@@ -78,8 +78,7 @@ class SpiderMonitorResult(MonitorResult):
 
     def write_item_result(self, item, extra=None):
         self.log_info(
-            "%s... %s%s"
-            % (item.name, self.step[item].status, " (%s)" % extra if extra else "")
+            f"{item.name}... {self.step[item].status}{f' ({extra})' if extra else ''}",
         )
 
     def write_run_footer(self):
@@ -89,14 +88,14 @@ class SpiderMonitorResult(MonitorResult):
                 item_name=self.step.item_result_class.name,
                 plural_suffix="" if self.step.number_of_items == 1 else "s",
                 time=self.step.time_taken,
-            )
+            ),
         )
 
     def write_step_summary(self):
         summary = "OK" if self.step.successful else "FAILED"
         infos = self.step.get_infos()
         if infos and sum(infos.values()):
-            summary += " (%s)" % ", ".join([f"{k}={v}" for k, v in infos.items() if v])
+            summary += f" ({', '.join([f'{k}={v}' for k, v in infos.items() if v])})"
         self.log_info(summary)
 
     def write_errors(self):
@@ -108,16 +107,13 @@ class SpiderMonitorResult(MonitorResult):
                 msg.write_line(f"{item.status}: {item.item.name}")
                 msg.write_light_separator()
                 msg.write(item.error)
-                self.log_error(msg)
-
-    def log_error(self, msg):
-        self.log(msg, level=logging.ERROR)
+                self.log(msg, level=getattr(item.item, "level", logging.ERROR))
 
     def log_info(self, msg):
         self.log(msg, level=logging.INFO)
 
     def log(self, msg, level=logging.DEBUG):
-        self.spider.log(f"[{LOG_MESSAGE_HEADER}] {msg}", level=level)
+        self.spider.logger.log(level, f"[{LOG_MESSAGE_HEADER}] {msg}")
 
 
 class SpiderMonitorRunner(MonitorRunner):

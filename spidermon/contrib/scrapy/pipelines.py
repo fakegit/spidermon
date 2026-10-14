@@ -1,19 +1,19 @@
-import json
-from io import BytesIO
 from collections import defaultdict
+from functools import partial
 
-from scrapy.exceptions import DropItem, NotConfigured
+from itemadapter import ItemAdapter
+from scrapy import Item
+from scrapy.exceptions import DropItem
 from scrapy.utils.misc import load_object
-from scrapy.exporters import JsonLinesItemExporter
-from scrapy import Field, Item
-from scrapy.utils.python import to_unicode
 
-from spidermon.contrib.validation import SchematicsValidator, JSONSchemaValidator
+from spidermon.contrib.utils.attributes import (
+    get_nested_attribute,
+    set_nested_attribute,
+)
+from spidermon.contrib.validation import JSONSchemaValidator
 from spidermon.contrib.validation.jsonschema.tools import get_schema_from
-from schematics.models import Model
 
 from .stats import ValidationStatsManager
-
 
 DEFAULT_ERRORS_FIELD = "_validation"
 DEFAULT_ADD_ERRORS_TO_ITEM = False
@@ -54,122 +54,114 @@ class ItemValidationPipeline:
         def set_validators(loader, schema):
             if type(schema) in (list, tuple):
                 schema = {Item: schema}
-            for obj, paths in schema.items():
+            for obj, paths_value in schema.items():
                 key = obj.__name__
-                paths = paths if type(paths) in (list, tuple) else [paths]
+                paths = (
+                    paths_value if type(paths_value) in (list, tuple) else [paths_value]
+                )
                 objects = [loader(v) for v in paths]
                 validators[key].extend(objects)
 
+        schema_types = crawler.settings.get("SPIDERMON_VALIDATION_SCHEMA_TYPES")
+        if isinstance(schema_types, str):
+            schema_types = load_object(schema_types)
+
         for loader, name in [
-            (cls._load_jsonschema_validator, "SPIDERMON_VALIDATION_SCHEMAS"),
-            (cls._load_schematics_validator, "SPIDERMON_VALIDATION_MODELS"),
+            (
+                partial(cls._load_jsonschema_validator, types=schema_types),
+                "SPIDERMON_VALIDATION_SCHEMAS",
+            ),
         ]:
             res = crawler.settings.get(name)
             if not res:
                 continue
             if type(res) not in allowed_types:
-                raise NotConfigured(
-                    "Invalid <{}> type for <{}> settings, dict or list/tuple"
-                    "is required".format(type(res), name)
+                raise TypeError(
+                    f"Invalid <{type(res)}> type for <{name}> settings, dict or list/tuple"
+                    "is required",
                 )
             set_validators(loader, res)
 
         if not validators:
-            raise NotConfigured("No validators were found")
+            raise ValueError("No validators were found")
 
         return cls(
             validators=validators,
             stats=crawler.stats,
             drop_items_with_errors=crawler.settings.getbool(
-                "SPIDERMON_VALIDATION_DROP_ITEMS_WITH_ERRORS"
+                "SPIDERMON_VALIDATION_DROP_ITEMS_WITH_ERRORS",
             ),
             add_errors_to_items=crawler.settings.getbool(
-                "SPIDERMON_VALIDATION_ADD_ERRORS_TO_ITEMS"
+                "SPIDERMON_VALIDATION_ADD_ERRORS_TO_ITEMS",
             ),
             errors_field=crawler.settings.get("SPIDERMON_VALIDATION_ERRORS_FIELD"),
         )
 
     @classmethod
-    def _load_jsonschema_validator(cls, schema):
+    def _load_jsonschema_validator(cls, schema, types=None):
         if isinstance(schema, str):
             schema = get_schema_from(schema)
         if not isinstance(schema, dict):
-            raise NotConfigured(
+            raise TypeError(
                 "Invalid schema, jsonschemas must be defined as:\n"
                 "- a python dict.\n"
                 "- an object path to a python dict.\n"
                 "- an object path to a JSON string.\n"
-                "- a path to a JSON file."
+                "- a path to a JSON file.",
             )
-        return JSONSchemaValidator(schema)
+        return JSONSchemaValidator(schema, types=types)
 
-    @classmethod
-    def _load_schematics_validator(cls, model_path):
-        model_class = load_object(model_path)
-        if not issubclass(model_class, Model):
-            raise NotConfigured(
-                "Invalid model, models must subclass schematics.models.Model"
-            )
-        return SchematicsValidator(model_class)
-
-    def process_item(self, item, _):
+    def process_item(self, item, spider=None):
         validators = self.find_validators(item)
         if not validators:
             # No validators match this specific item type
             return item
 
-        data = self._convert_item_to_dict(item)
+        item_adapter = ItemAdapter(item)
+        item_dict = item_adapter.asdict()
         self.stats.add_item()
-        self.stats.add_fields(len(list(data.keys())))
+        self.stats.add_fields(len(item_dict.keys()))
         for validator in validators:
-            ok, errors = validator.validate(data)
+            ok, errors = validator.validate(item_dict)
             if not ok:
                 self._add_error_stats(errors)
                 if self.add_errors_to_items:
-                    self._add_errors_to_item(item, errors)
+                    self._add_errors_to_item(item_adapter, errors)
                 if self.drop_items_with_errors:
                     self._drop_item(item, errors)
         return item
 
     def find_validators(self, item):
-        find = lambda x: self.validators.get(x.__name__, [])
+        def find(x):
+            return self.validators.get(x.__name__, [])
+
         return find(item.__class__) or find(Item)
 
-    def _convert_item_to_dict(self, item):
-        serialized_json = BytesIO()
-        exporter = JsonLinesItemExporter(serialized_json)
-        exporter.export_item(item)
-        data = json.loads(to_unicode(serialized_json.getvalue(), exporter.encoding))
-        serialized_json.close()
-        return data
+    def _add_errors_to_item(self, item: ItemAdapter, errors: dict[str, str]):
+        errors_field_instance = get_nested_attribute(item, self.errors_field)
 
-    def _add_errors_to_item(self, item, errors):
-        try:
-            if self.errors_field not in item.__class__.fields:
-                item.__class__.fields[self.errors_field] = Field()
-            if self.errors_field not in item._values:
-                item[self.errors_field] = defaultdict(list)
-        except AttributeError:
-            # The item is just a dict object instead of a Scrapy.Item object
-            if self.errors_field not in item:
-                item[self.errors_field] = defaultdict(list)
+        if errors_field_instance is None:
+            errors_field_instance = defaultdict(list)
+
         for field_name, messages in errors.items():
-            item[self.errors_field][field_name] += messages
+            errors_field_instance[field_name] += messages
+
+        # change defaultdict to dict for errors_field_instance
+        set_nested_attribute(item, self.errors_field, dict(errors_field_instance))
 
     def _drop_item(self, item, errors):
         """
-        This method drops the item after detecting validation errors. Note
-        that you could override it to add more details about the item that
-        is being dropped or to drop the item only when some specific errors
-        are detected.
+        Drop the item after detecting validation errors. Note that you could
+        override it to add more details about the item that is being dropped
+        or to drop the item only when some specific errors are detected.
         """
         self.stats.add_dropped_item()
         raise DropItem("Validation failed!")
 
     def _add_error_stats(self, errors):
         """
-        This method adds validation error stats that can be later used to
-        detect alert conditions in the monitors.
+        Add validation error stats that can be later used to detect alert
+        conditions in the monitors.
         """
         for field_name, messages in errors.items():
             for message in messages:

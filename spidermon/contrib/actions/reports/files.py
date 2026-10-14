@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from spidermon.exceptions import NotConfigured
 
 from . import CreateReport
@@ -10,7 +12,9 @@ class CreateFileReport(CreateReport):
         super().__init__(*args, **kwargs)
         self.filename = filename or self.filename
         if not self.filename:
-            raise NotConfigured("You must define a template output file.")
+            raise NotConfigured(
+                "You must provide a value for SPIDERMON_REPORT_FILENAME setting.",
+            )
 
     @classmethod
     def from_crawler_kwargs(cls, crawler):
@@ -21,5 +25,5 @@ class CreateFileReport(CreateReport):
     def after_render_report(self):
         rendered_filename = self.render_text_template(self.filename)
 
-        with open(rendered_filename, "w") as f:
+        with Path(rendered_filename).open("w", encoding="utf-8") as f:
             f.write(self.report)

@@ -1,16 +1,4 @@
 import json
-from schematics.models import Model
-from schematics.types import URLType, StringType, BaseType
-
-
-class TestValidator(Model):
-    url = URLType(required=True)
-    title = StringType()
-
-
-class TreeValidator(Model):
-    child = BaseType(required=True)
-
 
 tree_schema = {
     "$schema": "http://json-schema.org/draft-04/schema",
@@ -27,3 +15,11 @@ test_schema = {
 }
 
 test_schema_string = json.dumps(test_schema)
+
+custom_type_schema = {
+    "$schema": "http://json-schema.org/draft-04/schema",
+    "type": "object",
+    "properties": {"title": {"type": "custom"}},
+}
+
+custom_types = {"custom": lambda checker, instance: instance == "ok"}

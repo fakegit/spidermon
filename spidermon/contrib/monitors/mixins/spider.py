@@ -20,10 +20,21 @@ DOWNLOADER_STATUS_CODES_ERRORS = (
 
 
 class ResponsesInfo:
+    """Breakdown of the response status codes seen during the crawl, read from stats.
+
+    ``count`` is the total number of responses. ``all``, ``informational``
+    (1xx), ``successful`` (2xx), ``redirections`` (3xx), ``bad_requests``
+    (4xx), ``internal_server_errors`` (5xx), ``others`` and ``errors``
+    (``bad_requests`` + ``internal_server_errors``) are
+    ``DictPercentCounter`` instances mapping each status code in that group to
+    a ``PercentCounter``, e.g. ``responses.successful["200"].percent``.
+    """
+
     def __init__(self, stats):
         self._stats_analyzer = StatsAnalyzer(stats=stats)
         self.count = self._stats_analyzer.search(DOWNLOADER_RESPONSE_COUNT + "$").get(
-            DOWNLOADER_RESPONSE_COUNT, 0
+            DOWNLOADER_RESPONSE_COUNT,
+            0,
         )
 
         # all status codes
@@ -33,25 +44,29 @@ class ResponsesInfo:
         # 1xx. informational
         self.informational = DictPercentCounter(total=self.count)
         self._add_status_codes(
-            pattern=DOWNLOADER_STATUS_CODES_INFORMATIONAL, target=self.informational
+            pattern=DOWNLOADER_STATUS_CODES_INFORMATIONAL,
+            target=self.informational,
         )
 
         # 2xx. successful
         self.successful = DictPercentCounter(total=self.count)
         self._add_status_codes(
-            pattern=DOWNLOADER_STATUS_CODES_SUCCESSFUL, target=self.successful
+            pattern=DOWNLOADER_STATUS_CODES_SUCCESSFUL,
+            target=self.successful,
         )
 
         # 3xx. redirections
         self.redirections = DictPercentCounter(total=self.count)
         self._add_status_codes(
-            pattern=DOWNLOADER_STATUS_CODES_REDIRECTIONS, target=self.redirections
+            pattern=DOWNLOADER_STATUS_CODES_REDIRECTIONS,
+            target=self.redirections,
         )
 
         # 4xx. bad requests
         self.bad_requests = DictPercentCounter(total=self.count)
         self._add_status_codes(
-            pattern=DOWNLOADER_STATUS_CODES_BAD_REQUESTS, target=self.bad_requests
+            pattern=DOWNLOADER_STATUS_CODES_BAD_REQUESTS,
+            target=self.bad_requests,
         )
 
         # 5xx. internal server errors
@@ -64,13 +79,15 @@ class ResponsesInfo:
         # >= 6xx. others
         self.others = DictPercentCounter(total=self.count)
         self._add_status_codes(
-            pattern=DOWNLOADER_STATUS_CODES_OTHERS, target=self.others
+            pattern=DOWNLOADER_STATUS_CODES_OTHERS,
+            target=self.others,
         )
 
         # errors (4xx + 5xx)
         self.errors = DictPercentCounter(total=self.count)
         self._add_status_codes(
-            pattern=DOWNLOADER_STATUS_CODES_ERRORS, target=self.errors
+            pattern=DOWNLOADER_STATUS_CODES_ERRORS,
+            target=self.errors,
         )
 
     def _add_status_codes(self, pattern, target):
@@ -88,27 +105,34 @@ class ResponsesInfo:
         return {
             code: PercentCounter(count, self.count)
             for count, code in self._stats_analyzer.search(
-                pattern=DOWNLOADER_RESPONSE_STATUS + ("(%s)$" % code),
+                pattern=f"{DOWNLOADER_RESPONSE_STATUS}({code})$",
                 include_matches=True,
             ).values()
         }
 
 
 class SpiderMonitorMixin(StatsMonitorMixin, JobMonitorMixin):
+    """Adds ``crawler``, ``spider`` and ``responses`` properties to a monitor,
+    for monitors that check a Scrapy spider run."""
+
     @property
     def crawler(self):
+        """The Crawler instance running the spider being monitored."""
         if not self.data.crawler:
             raise NotConfigured("Crawler not available!")
         return self.data.crawler
 
     @property
     def spider(self):
+        """The Spider instance being monitored."""
         if not self.data.spider:
             raise NotConfigured("Spider not available!")
         return self.data.spider
 
     @property
     def responses(self):
+        """A :class:`ResponsesInfo` with a breakdown of the response status
+        codes seen during the crawl."""
         if not hasattr(self, "_responses"):
             self._responses = ResponsesInfo(self.stats)
         return self._responses

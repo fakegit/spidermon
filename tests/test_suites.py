@@ -1,15 +1,16 @@
 import pytest
 
-from spidermon import MonitorSuite
+from spidermon import Monitor, MonitorSuite
 from spidermon.exceptions import (
     InvalidMonitor,
-    InvalidMonitorIterable,
     InvalidMonitorClass,
+    InvalidMonitorIterable,
     InvalidMonitorTuple,
     NotAllowedMethod,
 )
 
-from .fixtures.suites import *
+from .fixtures.cases import EmptyMonitor, Monitor01, Monitor02
+from .fixtures.suites import EmptySuite, Suite01, Suite02, Suite03, Suite04
 
 
 class SuiteDefinition:
@@ -118,7 +119,8 @@ def test_creation_from_add_monitor():
 def _test_creation_from_init(definition):
     suite = definition.suite_class(monitors=definition.monitors)
     check_suite(
-        suite=suite, expected_number_of_monitors=definition.expected_number_of_monitors
+        suite=suite,
+        expected_number_of_monitors=definition.expected_number_of_monitors,
     )
 
 
@@ -130,11 +132,20 @@ def test_not_allowed_methods():
         suite.addTests()
 
 
+def test_debug_monitors():
+    suite = EmptySuite(monitors=[Monitor01])
+    output = suite.debug_monitors()
+    assert "MONITOR: Monitor01" in output
+    assert "METHOD: test_a" in output
+    assert "LEVEL: ERROR" in output
+
+
 def _test_creation_from_add_monitors(definition):
     suite = definition.suite_class()
     suite.add_monitors(definition.monitors)
     check_suite(
-        suite=suite, expected_number_of_monitors=definition.expected_number_of_monitors
+        suite=suite,
+        expected_number_of_monitors=definition.expected_number_of_monitors,
     )
 
 
@@ -143,7 +154,8 @@ def _test_creation_from_add_monitor(definition):
     for monitor in definition.monitors:
         suite.add_monitor(monitor)
     check_suite(
-        suite=suite, expected_number_of_monitors=definition.expected_number_of_monitors
+        suite=suite,
+        expected_number_of_monitors=definition.expected_number_of_monitors,
     )
 
 

@@ -1,14 +1,13 @@
 import logging
 
-from slugify import slugify
-
-logger = logging.getLogger(__name__)
-
 from sentry_sdk import configure_scope
 from sentry_sdk.client import Client
+from slugify import slugify
 
 from spidermon import Action
 from spidermon.exceptions import NotConfigured
+
+logger = logging.getLogger(__name__)
 
 
 class SendSentryMessage(Action):
@@ -35,10 +34,14 @@ class SendSentryMessage(Action):
         self.environment = environment or self.environment
 
         if not self.fake and not self.sentry_dsn:
-            raise NotConfigured("Missing SPIDERMON_SENTRY_DSN setting")
+            raise NotConfigured(
+                "You must provide a value for SPIDERMON_SENTRY_DSN setting.",
+            )
 
         if not self.project_name:
-            raise NotConfigured("Missing SPIDERMON_SENTRY_PROJECT_NAME setting")
+            raise NotConfigured(
+                "You must provide a value for SPIDERMON_SENTRY_PROJECT_NAME setting.",
+            )
 
     @classmethod
     def from_crawler_kwargs(cls, crawler):
@@ -58,28 +61,18 @@ class SendSentryMessage(Action):
             self.send_message(message)
 
     def get_title(self):
-        return (
-            "{project_name} | {environment} | Spider {spider_name} notification".format(
-                project_name=self.project_name,
-                environment=self.environment,
-                spider_name=self.data.spider.name,
-            )
-        )
+        return f"{self.project_name} | {self.environment} | Spider {self.data.sc_spider_name} notification"
 
     def get_message(self):
-        """
-        Returns message dictionary
-        """
-        message = dict()
+        """Return the message dictionary."""
+        message = {}
 
         message["title"] = self.get_title()
         if self.data.job:
-            message["job_link"] = "https://app.zyte.com/p/{job_id}".format(
-                job_id=self.data.job.key
-            )
+            message["job_link"] = f"https://app.zyte.com/p/{self.data.job.key}"
 
         if self.data.spider:
-            message["spider_name"] = self.data.spider.name
+            message["spider_name"] = self.data.sc_spider_name
 
         if self.data.stats:
             message["items_count"] = self.data.stats.get("item_scraped_count", 0)
@@ -111,7 +104,6 @@ class SendSentryMessage(Action):
         return tags
 
     def send_message(self, message):
-
         sentry_client = Client(dsn=self.sentry_dsn, environment=self.environment)
 
         with configure_scope() as scope:
@@ -124,21 +116,24 @@ class SendSentryMessage(Action):
             scope.set_extra("items_count", message.get("items_count", 0))
 
             scope.set_extra(
-                "passed_monitors_count", message.get("passed_monitors_count", 0)
+                "passed_monitors_count",
+                message.get("passed_monitors_count", 0),
             )
             scope.set_extra(
-                "failed_monitors_count", message.get("failed_monitors_count", 0)
+                "failed_monitors_count",
+                message.get("failed_monitors_count", 0),
             )
 
             scope.set_extra("failed_monitors", message.get("failed_monitors", []))
 
             sentry_client.capture_event(
-                {
+                event={
                     "message": "{title} \n {description}".format(
                         title=message.get("title"),
                         description=message.get("failure_reasons", ""),
                     ),
                     "level": self.sentry_log_level,
+                    "fingerprint": [message.get("title")],
                 },
                 scope=scope,
             )
